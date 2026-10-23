@@ -55,12 +55,12 @@ YOLO_MODEL = "yolo11s.pt"
 YOLO_IMGSZ = 1280
 YOLO_EPOCHS = 40
 YOLO_BATCH = 8
-YOLO_CONF = 0.28
+YOLO_CONF = 0.20
 YOLO_IOU = 0.50
 
 # ---- Refiner config ----
-REFINE_CROP = 512
-REFINE_EPOCHS = 12
+REFINE_CROP = 640
+REFINE_EPOCHS = 20
 REFINE_BATCH = 8
 REFINE_LR = 3e-4
 REFINE_THR = 0.50
@@ -375,16 +375,25 @@ def refine_box(gray, bbox_xyxy, conf):
     mean = np.array([0.485,0.456,0.406], np.float32)[:,None,None]
     std  = np.array([0.229,0.224,0.225], np.float32)[:,None,None]
 
-    shifts = [(0,0), (BOX_JITTER_PX,0), (-BOX_JITTER_PX,0), (0,BOX_JITTER_PX), (0,-BOX_JITTER_PX)] if USE_BOX_JITTER_TTA else [(0,0)]
+    shifts = [(0,0,False,False), (BOX_JITTER_PX,0,False,False), (-BOX_JITTER_PX,0,False,False), (0,BOX_JITTER_PX,False,False), (0,-BOX_JITTER_PX,False,False), (0,0,True,False), (0,0,False,True)] if USE_BOX_JITTER_TTA else [(0,0,False,False)]
     batch = []
-    for dx, dy in shifts:
+    for tta_param in shifts:
+        dx, dy, hflip, vflip = tta_param
         bbox_j = [x1+dx, y1+dy, bw, bh]
         sfull = seed_from_box(h, w, bbox_j)
         sc = cv2.resize(sfull[y0:y1b, x0:x1b], (REFINE_CROP,)*2, interpolation=cv2.INTER_NEAREST)
-        x = np.stack([img_c, clahe, sc*255], 0).astype(np.float32)/255.0
+        ic = img_c.copy(); cc = clahe.copy()
+        if hflip: ic, cc = np.fliplr(ic).copy(), np.fliplr(cc).copy(); sc = np.fliplr(sc).copy()
+        if vflip: ic, cc = np.flipud(ic).copy(), np.flipud(cc).copy(); sc = np.flipud(sc).copy()
+        x = np.stack([ic, cc, sc*255], 0).astype(np.float32)/255.0
         batch.append((x - mean) / std)
     x = torch.from_numpy(np.stack(batch)).to(DEVICE)
-    prob = torch.sigmoid(refiner(x)).mean(dim=0)[0].cpu().numpy()
+    logits = refiner(x)
+    # Unflip predictions
+    for i, (dx, dy, hflip, vflip) in enumerate(shifts):
+        if vflip: logits[i] = logits[i].flip(-2)
+        if hflip: logits[i] = logits[i].flip(-1)
+    prob = torch.sigmoid(logits).mean(dim=0)[0].cpu().numpy()
     crop_m = (prob >= REFINE_THR).astype(np.uint8)
     full = np.zeros((h,w), np.uint8)
     full[y0:y1b, x0:x1b] = cv2.resize(crop_m, (x1b-x0, y1b-y0), interpolation=cv2.INTER_NEAREST)
