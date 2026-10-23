@@ -64,7 +64,8 @@ From `outputs/sample_visualization.png`:
 
 | # | Date | Model | CV PQ | LB PQ | Commit | Notes |
 |---|------|-------|-------|-------|--------|-------|
-| 1 | 2026-10-23 | U-Net ResNet34, 512x512, 5ep, lr=3e-4, BCE+Dice | — | 0.18 | 900b1aa | First baseline, 5ep lr=3e-4 512x512 too weak |
+| 2 | 2026-10-23 | U-Net ResNet34, 768x768, 35ep, lr=3e-3, BCE+Dice, minarea100 | — | 0.27 | 1b82cdb | +50% vs v4: 35ep, bigger img, higher lr |
+| 1 | 2026-10-23 | U-Net ResNet34, 512x512, 5ep, lr=3e-4, BCE+Dice | — | 0.18 | 900b1aa | First baseline |
 
 ## Known Issues & Workarounds
 
