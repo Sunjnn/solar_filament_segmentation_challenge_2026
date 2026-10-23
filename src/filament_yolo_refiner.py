@@ -17,6 +17,11 @@ import sys, subprocess, os, json, math, random, shutil
 from pathlib import Path
 from collections import defaultdict
 
+# Install missing packages
+for pkg, imp in [("segmentation-models-pytorch", "segmentation_models_pytorch"), ("ultralytics", "ultralytics"), ("pycocotools", "pycocotools")]:
+    try: __import__(imp)
+    except ImportError: subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", pkg])
+
 import cv2, numpy as np, pandas as pd
 import torch, torch.nn as nn, torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
