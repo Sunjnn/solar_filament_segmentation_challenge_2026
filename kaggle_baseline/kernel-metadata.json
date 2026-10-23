@@ -1,13 +1,15 @@
 {
-  "id": "sunjnn/filament-baseline-unet",
-  "title": "Filament Baseline U-Net",
+  "id": "jianansun/filament-baseline-unet",
+  "title": "Filament Baseline UNet",
   "code_file": "filament_baseline.ipynb",
   "language": "python",
   "kernel_type": "notebook",
-  "is_private": true,
+  "is_private": false,
   "enable_gpu": true,
   "enable_internet": false,
   "dataset_sources": [],
-  "competition_sources": ["filament-segmentation-2026"],
+  "competition_sources": [
+    "filament-segmentation-2026"
+  ],
   "kernel_sources": []
 }
