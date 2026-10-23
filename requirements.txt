@@ -33,4 +33,4 @@ orjson
 
 # Jupyter (for local testing)
 jupyter
-ipykernel
+ipykernelscikit-learn
