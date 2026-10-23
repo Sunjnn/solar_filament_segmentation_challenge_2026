@@ -307,8 +307,8 @@ def main():
 
     print(f"Training complete. Best val loss: {best_val_loss:.4f}")
 
-# Uncomment to run:
-# main()
+# Run training:
+main()
 
 # %% md
 # ## 9. Inference & Submission
@@ -386,9 +386,9 @@ def predict_and_submit(model, test_dir, output_path="submission.csv"):
     print(f"Submission saved: {output_path} ({len(sub_df)} rows)")
     return sub_df
 
-# Uncomment to run after training:
-# model = smp.Unet(encoder_name=CFG.ENCODER, encoder_weights=None,
-#                  in_channels=CFG.IN_CHANNELS, classes=CFG.NUM_CLASSES).to(CFG.DEVICE)
-# model.load_state_dict(torch.load("best_unet_model.pth"))
-# sub_df = predict_and_submit(model, CFG.TEST_IMAGES)
-# sub_df.head()
+# Run inference on test set:
+model = smp.Unet(encoder_name=CFG.ENCODER, encoder_weights=None,
+                 in_channels=CFG.IN_CHANNELS, classes=CFG.NUM_CLASSES).to(CFG.DEVICE)
+model.load_state_dict(torch.load("best_unet_model.pth"))
+sub_df = predict_and_submit(model, CFG.TEST_IMAGES)
+sub_df.head()
