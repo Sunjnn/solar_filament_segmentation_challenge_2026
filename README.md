@@ -64,7 +64,8 @@ From `outputs/sample_visualization.png`:
 
 | # | Date | Model | CV PQ | LB PQ | Commit | Notes |
 |---|------|-------|-------|-------|--------|-------|
-| 2 | 2026-10-23 | U-Net ResNet34, 768x768, 35ep, lr=3e-3, BCE+Dice, minarea100 | — | 0.27 | 1b82cdb | +50% vs v4: 35ep, bigger img, higher lr |
+| 2 | 2026-10-23 | U-Net ResNet34, 768x768, 35ep, lr=3e-3, BCE+Dice, minarea100 | — | 0.27 | 1b82cdb | +50% vs v4 |
+| 3 | 2026-10-23 | YOLO11s+SeedRefiner U-Net, 40ep+12ep, BoxJitter TTA | — | 0.36 | c3bea1e | +33% vs v5, two-stage pipeline |
 | 1 | 2026-10-23 | U-Net ResNet34, 512x512, 5ep, lr=3e-4, BCE+Dice | — | 0.18 | 900b1aa | First baseline |
 
 ## Known Issues & Workarounds
