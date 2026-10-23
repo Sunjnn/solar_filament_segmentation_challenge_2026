@@ -71,19 +71,19 @@ class CFG:
     NUM_CLASSES = 1   # binary: filament vs background
 
     # Image
-    IMG_SIZE = 512    # resize to square
+    IMG_SIZE = 768    # larger for better detail
 
     # Training
     BATCH_SIZE = 8
-    NUM_EPOCHS = 5    # baseline: 5; LB 1st: 35
-    LEARNING_RATE = 3e-4
+    NUM_EPOCHS = 35   # matching LB 1st config
+    LEARNING_RATE = 3e-3   # matching LB 1st config
     NUM_WORKERS = 2
     SEED = 42
     VAL_SPLIT = 0.2
 
     # Inference
     THRESHOLD = 0.5
-    MIN_AREA = 30
+    MIN_AREA = 100   # stricter to reduce FP
 
     # Device
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
