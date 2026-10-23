@@ -1,0 +1,13 @@
+{
+  "id": "jianansun/filament-yolo-seed-refiner",
+  "title": "Filament YOLO Seed Refiner",
+  "code_file": "filament_yolo_refiner.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": false,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": ["filament-segmentation-2026"],
+  "kernel_sources": []
+}
