@@ -1,0 +1,36 @@
+# Kaggle CLI
+kaggle
+
+# Notebook generation
+nbformat
+
+# Data processing
+pandas
+numpy
+opencv-python
+Pillow
+pycocotools
+
+# Visualization
+matplotlib
+seaborn
+
+# Deep learning (CPU for local smoke, GPU on Kaggle)
+torch
+torchvision
+
+# Image augmentation
+albumentations
+
+# Segmentation models
+segmentation-models-pytorch
+
+# Progress bars
+tqdm
+
+# JSON handling (fast)
+orjson
+
+# Jupyter (for local testing)
+jupyter
+ipykernel

@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project outputs (generated files)
+outputs/
+data/
+.cache/
+
+# Jupyter notebooks (generated from src/*.py)
+*.ipynb
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Kaggle
+kaggle.json
+
+# ML artifacts
+*.pth
+*.pt
+*.onnx
+checkpoints/
+runs/
+wandb/

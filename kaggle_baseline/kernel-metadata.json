@@ -1,0 +1,13 @@
+{
+  "id": "sunjnn/filament-baseline-unet",
+  "title": "Filament Baseline U-Net",
+  "code_file": "filament_baseline.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "dataset_sources": [],
+  "competition_sources": ["filament-segmentation-2026"],
+  "kernel_sources": []
+}
