@@ -49,8 +49,17 @@ from pycocotools import mask as mask_utils
 
 # %%
 class CFG:
-    # Paths (Kaggle environment — MAGFiLO dataset)
-    BASE = Path("/kaggle/input/competitions/filament-segmentation-2026/MAGFiLO_1.0_Kaggle_2026")
+    # Paths — auto-detect between competition data and attached dataset
+    def _find_base():
+        for p in [
+            Path("/kaggle/input/filament-segmentation-2026/MAGFiLO_1.0_Kaggle_2026"),
+            Path("/kaggle/input/competitions/filament-segmentation-2026/MAGFiLO_1.0_Kaggle_2026"),
+        ]:
+            if (p / "train/train_images").exists():
+                return p
+        raise FileNotFoundError("Cannot find MAGFiLO dataset")
+
+    BASE = _find_base()
     TRAIN_IMAGES = BASE / "train/train_images"
     TEST_IMAGES = BASE / "test/test_images"
     ANNOTATIONS = BASE / "train/MAGFiLO_1.0_Annotations_kaggle2026_train.json"
