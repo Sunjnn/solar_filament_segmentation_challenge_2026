@@ -6,7 +6,7 @@
   "kernel_type": "notebook",
   "is_private": false,
   "enable_gpu": true,
-  "enable_internet": false,
+  "enable_internet": true,
   "dataset_sources": [],
   "competition_sources": [
     "filament-segmentation-2026"
