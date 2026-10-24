@@ -55,7 +55,7 @@ YOLO_MODEL = "yolo11s.pt"
 YOLO_IMGSZ = 1280
 YOLO_EPOCHS = 40
 YOLO_BATCH = 8
-YOLO_CONF = 0.20
+YOLO_CONF = 0.28
 YOLO_IOU = 0.50
 
 # ---- Refiner config ----
@@ -67,7 +67,7 @@ REFINE_THR = 0.50
 PAD_RATIO = 0.40
 CONTEXT = 1.5
 MIN_CROP = 96
-MIN_AREA = 200
+MIN_AREA = 150
 
 # ---- General ----
 VAL_FRAC = 0.15
