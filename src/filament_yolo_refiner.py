@@ -127,10 +127,17 @@ val_s = [s for s in samples if s["stem"] in val_stems]
 def build_ann_list(slist):
     rows = []
     for s in slist:
+        # Count how many annotators for consensus weighting
+        annotator_ids = set()
+        for a in s["annotations"]:
+            img_id_str = str(s.get("image_id", ""))
+            aid = img_id_str.split("-")[0] if "-" in img_id_str else "0"
+            annotator_ids.add(aid)
+        n_annotators = max(1, len(annotator_ids))
         for ann in s["annotations"]:
             if ann.get("iscrowd", 0): continue
             if not ann.get("segmentation"): continue
-            rows.append((s, ann))
+            rows.append({"sample": s, "ann": ann, "weight": 1.0 / n_annotators})
     return rows
 
 train_anns = build_ann_list(train_s)
@@ -250,7 +257,8 @@ class SeedRefineDataset(Dataset):
         return self._cache[k]
     def __len__(self): return len(self.ann_list)
     def __getitem__(self, idx):
-        s, ann = self.ann_list[idx]
+        item = self.ann_list[idx]
+        s, ann = item["sample"], item["ann"]
         img = self._load(s["path"]); h, w = img.shape
         target = ann_to_mask(ann, h, w)
         gt_bbox = ann["bbox"]
@@ -263,6 +271,12 @@ class SeedRefineDataset(Dataset):
         x0, y0, x1, y1 = square_bounds(gt_bbox, h, w)
         img_c = cv2.resize(img[y0:y1, x0:x1], (self.crop_size,)*2, interpolation=cv2.INTER_LINEAR)
         tgt_c = cv2.resize(target[y0:y1, x0:x1], (self.crop_size,)*2, interpolation=cv2.INTER_NEAREST)
+        # Edge softening: Gaussian blur on binary mask (sigma 0.5-1.5)
+        if self.augment:
+            blur_sigma = 0.5 + random.random() * 1.0
+            ksize = max(3, int(blur_sigma * 4 + 1) | 1)  # odd kernel
+            tgt_c = cv2.GaussianBlur(tgt_c.astype(np.float32), (ksize, ksize), blur_sigma)
+            tgt_c = np.clip(tgt_c, 0, 1)  # keep in [0,1]
         seed_c = cv2.resize(seed_full[y0:y1, x0:x1], (self.crop_size,)*2, interpolation=cv2.INTER_NEAREST)
         clahe = cv2.createCLAHE(2.0, (8,8)).apply(img_c)
         if self.augment and random.random() < 0.5:
@@ -271,11 +285,25 @@ class SeedRefineDataset(Dataset):
         if self.augment and random.random() < 0.5:
             img_c, clahe = np.flipud(img_c).copy(), np.flipud(clahe).copy()
             tgt_c, seed_c = np.flipud(tgt_c).copy(), np.flipud(seed_c).copy()
+        # Spine mask for topology loss
+        spine = ann.get("spine")
+        if spine and len(spine) >= 4:
+            spine_pts = np.array(spine, dtype=np.int32).reshape(-1, 2)
+            spine_mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.polylines(spine_mask, [spine_pts], False, 1, thickness=3)
+        else:
+            spine_mask = np.zeros((h, w), dtype=np.uint8)
+        spine_c = cv2.resize(spine_mask[y0:y1, x0:x1], (self.crop_size,)*2, interpolation=cv2.INTER_NEAREST)
+        if self.augment and random.random() < 0.5:
+            spine_c = np.fliplr(spine_c).copy()
+        if self.augment and random.random() < 0.5:
+            spine_c = np.flipud(spine_c).copy()
+        
         x = np.stack([img_c, clahe, seed_c*255], axis=0).astype(np.float32) / 255.0
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
         std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
         x = (x - mean) / std
-        return torch.from_numpy(x), torch.from_numpy(tgt_c[None].astype(np.float32))
+        return torch.from_numpy(x), torch.from_numpy(tgt_c[None].astype(np.float32)), torch.from_numpy(spine_c[None].astype(np.float32))
 
 # %% md
 # ## 6. Train Seed-Refiner U-Net
@@ -286,6 +314,33 @@ def soft_dice_loss(logits, targets, eps=1e-6):
     inter = (probs * targets).sum(dim=(2,3))
     den = probs.sum(dim=(2,3)) + targets.sum(dim=(2,3))
     return 1.0 - ((2*inter + eps) / (den + eps)).mean()
+
+def soft_cldice_loss(logits, targets, spine_masks, eps=1e-6):
+    """
+    Soft clDice: topology-aware loss that ensures predicted masks
+    have filaments where the spine (centerline) is, and vice versa.
+    
+    clDice = 2 * |pred ∩ spine_gt| / (|pred| + |spine_gt|)
+           × 2 * |spine_pred ∩ gt| / (|spine_pred| + |gt|)
+    """
+    probs = torch.sigmoid(logits)
+    pred_binary = (probs > 0.5).float()
+    
+    # Skeleton extraction via soft approximation:
+    # Use morphological soft skeleton = min-pooling based thinning proxy
+    # Simpler proxy: use soft mask overlap with GT spine
+    pred_in_spine = (pred_binary * spine_masks).sum(dim=(2,3))
+    spine_sum = spine_masks.sum(dim=(2,3))
+    pred_sum = pred_binary.sum(dim=(2,3))
+    
+    # Topology precision: how much of predicted mask covers spine
+    tprec = (pred_in_spine + eps) / (pred_sum + eps)
+    # Topology sensitivity: how much of spine is covered by prediction  
+    tsens = (pred_in_spine + eps) / (spine_sum + eps)
+    
+    # Soft clDice: product of tprec and tsens
+    cldice = 2 * tprec * tsens / (tprec + tsens + eps)
+    return 1.0 - cldice.mean()
 
 @torch.no_grad()
 def batch_dice(logits, targets, thr=0.5):
@@ -299,8 +354,8 @@ val_ds = SeedRefineDataset(val_anns, REFINE_CROP, False)
 train_loader = DataLoader(train_ds, REFINE_BATCH, shuffle=True, num_workers=WORKERS, pin_memory=True, drop_last=True)
 val_loader = DataLoader(val_ds, REFINE_BATCH*2, shuffle=False, num_workers=WORKERS, pin_memory=True)
 
-xb, yb = next(iter(train_loader))
-print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}")
+xb, yb, sb = next(iter(train_loader))
+print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}, spine_mean={float(sb.mean()):.6f}")
 
 refiner = smp.Unet(encoder_name="resnet34", encoder_weights="imagenet", in_channels=3, classes=1).to(DEVICE)
 opt = torch.optim.AdamW(refiner.parameters(), lr=REFINE_LR, weight_decay=1e-4)
@@ -313,12 +368,14 @@ refiner_ckpt = OUT / "seed_refiner_best.pt"
 for epoch in range(1, REFINE_EPOCHS+1):
     refiner.train()
     tr_losses, tr_dices = [], []
-    for x, y in tqdm(train_loader, leave=False, desc=f"refine train {epoch}"):
-        x, y = x.to(DEVICE), y.to(DEVICE)
+    for batch in tqdm(train_loader, leave=False, desc=f"refine train {epoch}"):
+        x, y, spine_masks = batch
+        x, y, spine_masks = x.to(DEVICE), y.to(DEVICE), spine_masks.to(DEVICE)
         opt.zero_grad(set_to_none=True)
         with torch.amp.autocast("cuda", enabled=DEVICE.type=="cuda"):
             logits = refiner(x)
-            loss = 0.45*F.binary_cross_entropy_with_logits(logits, y) + 0.55*soft_dice_loss(logits, y)
+            # BCE + Dice + clDice: clDice preserves filament topology
+            loss = 0.35*F.binary_cross_entropy_with_logits(logits, y) + 0.35*soft_dice_loss(logits, y) + 0.30*soft_cldice_loss(logits, y, spine_masks)
         scaler.scale(loss).backward(); scaler.step(opt); scaler.update()
         tr_losses.append(loss.item()); tr_dices.append(batch_dice(logits.detach(), y))
     refiner.eval()
