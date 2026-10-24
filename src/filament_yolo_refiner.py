@@ -381,10 +381,11 @@ for epoch in range(1, REFINE_EPOCHS+1):
     refiner.eval()
     va_losses, va_dices = [], []
     with torch.no_grad():
-        for x, y in tqdm(val_loader, leave=False, desc=f"refine val {epoch}"):
-            x, y = x.to(DEVICE), y.to(DEVICE)
+        for batch in tqdm(val_loader, leave=False, desc=f"refine val {epoch}"):
+            x, y, spine_masks = batch
+            x, y, spine_masks = x.to(DEVICE), y.to(DEVICE), spine_masks.to(DEVICE)
             logits = refiner(x)
-            loss = 0.45*F.binary_cross_entropy_with_logits(logits, y) + 0.55*soft_dice_loss(logits, y)
+            loss = 0.35*F.binary_cross_entropy_with_logits(logits, y) + 0.35*soft_dice_loss(logits, y) + 0.30*soft_cldice_loss(logits, y, spine_masks)
             va_losses.append(loss.item()); va_dices.append(batch_dice(logits, y))
     sched.step()
     tr_l, tr_d = np.mean(tr_losses), np.mean(tr_dices)
