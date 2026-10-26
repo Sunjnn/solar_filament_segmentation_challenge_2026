@@ -53,15 +53,15 @@ OUT = Path("/kaggle/working")
 # ---- YOLO config ----
 YOLO_MODEL = "yolo11m.pt"
 YOLO_IMGSZ = 1280
-YOLO_EPOCHS = 50
-YOLO_BATCH = 8
+YOLO_EPOCHS = 40
+YOLO_BATCH = 6
 YOLO_CONF = 0.35
 YOLO_IOU = 0.50
 
 # ---- Refiner config ----
-REFINE_CROP = 640
-REFINE_EPOCHS = 20
-REFINE_BATCH = 8
+REFINE_CROP = 512
+REFINE_EPOCHS = 15
+REFINE_BATCH = 6
 REFINE_LR = 3e-4
 REFINE_THR = 0.50
 PAD_RATIO = 0.40
@@ -367,7 +367,7 @@ val_loader = DataLoader(val_ds, REFINE_BATCH*2, shuffle=False, num_workers=WORKE
 xb, yb, sb, wb = next(iter(train_loader))
 print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}, weight_mean={float(wb.mean()):.4f}")
 
-refiner = smp.Unet(encoder_name="efficientnet-b4", encoder_weights="imagenet", in_channels=3, classes=1).to(DEVICE)
+refiner = smp.Unet(encoder_name="resnet50", encoder_weights="imagenet", in_channels=3, classes=1).to(DEVICE)
 opt = torch.optim.AdamW(refiner.parameters(), lr=REFINE_LR, weight_decay=1e-4)
 sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=REFINE_EPOCHS)
 scaler = torch.amp.GradScaler("cuda", enabled=DEVICE.type=="cuda")
