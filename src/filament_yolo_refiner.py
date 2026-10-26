@@ -55,7 +55,7 @@ YOLO_MODEL = "yolo11m.pt"
 YOLO_IMGSZ = 1280
 YOLO_EPOCHS = 40
 YOLO_BATCH = 6
-YOLO_CONF = 0.35
+YOLO_CONF = 0.28
 YOLO_IOU = 0.50
 
 # ---- Refiner config ----
@@ -67,7 +67,7 @@ REFINE_THR = 0.50
 PAD_RATIO = 0.40
 CONTEXT = 1.5
 MIN_CROP = 96
-MIN_AREA = 300
+MIN_AREA = 200
 
 # ---- General ----
 VAL_FRAC = 0.15
@@ -125,29 +125,12 @@ val_s = [s for s in samples if s["stem"] in val_stems]
 
 # Per-annotation list for refiner training
 def build_ann_list(slist):
-    # Step 1: count annotators per base image (across all annotator-entries)
-    base_img_annotator_count = {}
-    for s in slist:
-        img_id_str = str(s.get("image_id", ""))
-        if "-" in img_id_str:
-            annotator, base_img = img_id_str.split("-", 1)
-            base_img_annotator_count.setdefault(base_img, set()).add(annotator)
-    
-    # Step 2: build annotation list with consensus weight
     rows = []
     for s in slist:
-        img_id_str = str(s.get("image_id", ""))
-        if "-" in img_id_str:
-            _, base_img = img_id_str.split("-", 1)
-            n_total = max(1, len(base_img_annotator_count.get(base_img, set())))
-        else:
-            n_total = 1
-        weight = 1.0 / n_total  # lower weight = less consensus
-        
         for ann in s["annotations"]:
             if ann.get("iscrowd", 0): continue
             if not ann.get("segmentation"): continue
-            rows.append({"sample": s, "ann": ann, "weight": weight})
+            rows.append({"sample": s, "ann": ann, "weight": 1.0})
     return rows
 
 train_anns = build_ann_list(train_s)
@@ -313,7 +296,7 @@ class SeedRefineDataset(Dataset):
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
         std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
         x = (x - mean) / std
-        return torch.from_numpy(x), torch.from_numpy(tgt_c[None].astype(np.float32)), torch.from_numpy(spine_c[None].astype(np.float32)), self.ann_list[idx]["weight"]
+        return torch.from_numpy(x), torch.from_numpy(tgt_c[None].astype(np.float32)), torch.from_numpy(spine_c[None].astype(np.float32))
 
 # %% md
 # ## 6. Train Seed-Refiner U-Net
@@ -364,8 +347,8 @@ val_ds = SeedRefineDataset(val_anns, REFINE_CROP, False)
 train_loader = DataLoader(train_ds, REFINE_BATCH, shuffle=True, num_workers=WORKERS, pin_memory=True, drop_last=True)
 val_loader = DataLoader(val_ds, REFINE_BATCH*2, shuffle=False, num_workers=WORKERS, pin_memory=True)
 
-xb, yb, sb, wb = next(iter(train_loader))
-print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}, weight_mean={float(wb.mean()):.4f}")
+xb, yb, sb = next(iter(train_loader))
+print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}, spine_mean={float(sb.mean()):.6f}")
 
 refiner = smp.Unet(encoder_name="resnet50", encoder_weights="imagenet", in_channels=3, classes=1).to(DEVICE)
 opt = torch.optim.AdamW(refiner.parameters(), lr=REFINE_LR, weight_decay=1e-4)
@@ -379,20 +362,18 @@ for epoch in range(1, REFINE_EPOCHS+1):
     refiner.train()
     tr_losses, tr_dices = [], []
     for batch in tqdm(train_loader, leave=False, desc=f"refine train {epoch}"):
-        x, y, spine_masks, weights = batch
-        x, y, spine_masks, weights = x.to(DEVICE), y.to(DEVICE), spine_masks.to(DEVICE), weights.to(DEVICE).view(-1,1,1,1)
+        x, y, spine_masks = batch
+        x, y, spine_masks = x.to(DEVICE), y.to(DEVICE), spine_masks.to(DEVICE)
         opt.zero_grad(set_to_none=True)
         with torch.amp.autocast("cuda", enabled=DEVICE.type=="cuda"):
             logits = refiner(x)
-            bce_raw = F.binary_cross_entropy_with_logits(logits, y, reduction="none").mean(dim=(1,2,3))
-            w_bce = (bce_raw * weights.squeeze()).mean()
-            loss = 0.35*w_bce + 0.35*soft_dice_loss(logits, y) + 0.30*soft_cldice_loss(logits, y, spine_masks)
+            loss = 0.35*F.binary_cross_entropy_with_logits(logits, y) + 0.35*soft_dice_loss(logits, y) + 0.30*soft_cldice_loss(logits, y, spine_masks)
         tr_losses.append(loss.item()); tr_dices.append(batch_dice(logits.detach(), y))
     refiner.eval()
     va_losses, va_dices = [], []
     with torch.no_grad():
         for batch in tqdm(val_loader, leave=False, desc=f"refine val {epoch}"):
-            x, y, spine_masks, _ = batch
+            x, y, spine_masks = batch
             x, y, spine_masks = x.to(DEVICE), y.to(DEVICE), spine_masks.to(DEVICE)
             logits = refiner(x)
             loss = 0.35*F.binary_cross_entropy_with_logits(logits, y) + 0.35*soft_dice_loss(logits, y) + 0.30*soft_cldice_loss(logits, y, spine_masks)
