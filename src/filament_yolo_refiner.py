@@ -379,20 +379,20 @@ for epoch in range(1, REFINE_EPOCHS+1):
     refiner.train()
     tr_losses, tr_dices = [], []
     for batch in tqdm(train_loader, leave=False, desc=f"refine train {epoch}"):
-        x, y, spine_masks = batch
-        x, y, spine_masks = x.to(DEVICE), y.to(DEVICE), spine_masks.to(DEVICE)
+        x, y, spine_masks, weights = batch
+        x, y, spine_masks, weights = x.to(DEVICE), y.to(DEVICE), spine_masks.to(DEVICE), weights.to(DEVICE).view(-1,1,1,1)
         opt.zero_grad(set_to_none=True)
         with torch.amp.autocast("cuda", enabled=DEVICE.type=="cuda"):
             logits = refiner(x)
-            # BCE + Dice + clDice: clDice preserves filament topology
-            loss = 0.35*F.binary_cross_entropy_with_logits(logits, y) + 0.35*soft_dice_loss(logits, y) + 0.30*soft_cldice_loss(logits, y, spine_masks)
-        scaler.scale(loss).backward(); scaler.step(opt); scaler.update()
+            bce_raw = F.binary_cross_entropy_with_logits(logits, y, reduction="none").mean(dim=(1,2,3))
+            w_bce = (bce_raw * weights.squeeze()).mean()
+            loss = 0.35*w_bce + 0.35*soft_dice_loss(logits, y) + 0.30*soft_cldice_loss(logits, y, spine_masks)
         tr_losses.append(loss.item()); tr_dices.append(batch_dice(logits.detach(), y))
     refiner.eval()
     va_losses, va_dices = [], []
     with torch.no_grad():
         for batch in tqdm(val_loader, leave=False, desc=f"refine val {epoch}"):
-            x, y, spine_masks = batch
+            x, y, spine_masks, _ = batch
             x, y, spine_masks = x.to(DEVICE), y.to(DEVICE), spine_masks.to(DEVICE)
             logits = refiner(x)
             loss = 0.35*F.binary_cross_entropy_with_logits(logits, y) + 0.35*soft_dice_loss(logits, y) + 0.30*soft_cldice_loss(logits, y, spine_masks)
