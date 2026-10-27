@@ -308,7 +308,7 @@ val_ds = SeedRefineDataset(val_anns, REFINE_CROP, False)
 train_loader = DataLoader(train_ds, REFINE_BATCH, shuffle=True, num_workers=WORKERS, pin_memory=True, drop_last=True)
 val_loader = DataLoader(val_ds, REFINE_BATCH*2, shuffle=False, num_workers=WORKERS, pin_memory=True)
 
-xb, yb, sb = next(iter(train_loader))
+xb, yb = next(iter(train_loader))
 print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}, ")
 
 refiner = smp.Unet(encoder_name="resnet50", encoder_weights="imagenet", in_channels=3, classes=1).to(DEVICE)
