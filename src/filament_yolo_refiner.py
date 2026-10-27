@@ -259,17 +259,12 @@ class SeedRefineDataset(Dataset):
             rng = np.random.default_rng(SEED + idx + random.randint(0, 10000))
             box_j, pad_j = jitter_bbox(gt_bbox, h, w, rng)
             seed_full = seed_from_box(h, w, box_j, pad_ratio=pad_j)
+            x0, y0, x1, y1 = square_bounds(box_j, h, w)
         else:
             seed_full = seed_from_box(h, w, gt_bbox)
-        x0, y0, x1, y1 = square_bounds(gt_bbox, h, w)
+            x0, y0, x1, y1 = square_bounds(gt_bbox, h, w)
         img_c = cv2.resize(img[y0:y1, x0:x1], (self.crop_size,)*2, interpolation=cv2.INTER_LINEAR)
         tgt_c = cv2.resize(target[y0:y1, x0:x1], (self.crop_size,)*2, interpolation=cv2.INTER_NEAREST)
-        # Edge softening: Gaussian blur on binary mask (sigma 0.5-1.5)
-        if self.augment:
-            blur_sigma = 0.5 + random.random() * 1.0
-            ksize = max(3, int(blur_sigma * 4 + 1) | 1)  # odd kernel
-            tgt_c = cv2.GaussianBlur(tgt_c.astype(np.float32), (ksize, ksize), blur_sigma)
-            tgt_c = np.clip(tgt_c, 0, 1)  # keep in [0,1]
         seed_c = cv2.resize(seed_full[y0:y1, x0:x1], (self.crop_size,)*2, interpolation=cv2.INTER_NEAREST)
         clahe = cv2.createCLAHE(2.0, (8,8)).apply(img_c)
         if self.augment and random.random() < 0.5:
@@ -329,7 +324,11 @@ for epoch in range(1, REFINE_EPOCHS+1):
         with torch.amp.autocast("cuda", enabled=DEVICE.type=="cuda"):
             logits = refiner(x)
             loss = 0.5*F.binary_cross_entropy_with_logits(logits, y) + 0.5*soft_dice_loss(logits, y)
-        scaler.scale(loss).backward(); scaler.step(opt); scaler.update()
+        scaler.scale(loss).backward()
+        scaler.unscale_(opt)
+        torch.nn.utils.clip_grad_norm_(refiner.parameters(), max_norm=1.0)
+        scaler.step(opt)
+        scaler.update()
         tr_losses.append(loss.item()); tr_dices.append(batch_dice(logits.detach(), y))
     refiner.eval()
     va_losses, va_dices = [], []
