@@ -240,8 +240,12 @@ def jitter_bbox(bbox, h, w, rng):
     return [x, y, bw, bh], pad
 
 class SeedRefineDataset(Dataset):
-    def __init__(self, ann_list, crop_size, augment=True):
+    def __init__(self, ann_list, crop_size, augment=True, mean=None, std=None):
         self.ann_list = ann_list; self.crop_size = crop_size; self.augment = augment
+        if (mean is None) != (std is None):
+            raise ValueError("mean and std must be provided together")
+        self.mean = None if mean is None else np.asarray(mean, dtype=np.float32)[:, None, None]
+        self.std = None if std is None else np.asarray(std, dtype=np.float32)[:, None, None]
         self._cache = {}
     def _load(self, path):
         k = str(path)
@@ -276,7 +280,8 @@ class SeedRefineDataset(Dataset):
 
         
         x = np.stack([img_c, clahe, seed_c*255], axis=0).astype(np.float32) / 255.0
-        x = (x - REFINER_MEAN[:, None, None]) / REFINER_STD[:, None, None]
+        if self.mean is not None:
+            x = (x - self.mean) / self.std
         return torch.from_numpy(x), torch.from_numpy(tgt_c[None].astype(np.float32))
 
 # %% md
@@ -296,17 +301,9 @@ def batch_dice(logits, targets, thr=0.5):
     den = preds.sum(dim=(2,3)) + targets.sum(dim=(2,3))
     return ((2*inter + 1e-6) / (den + 1e-6)).mean().item()
 
-train_ds = SeedRefineDataset(train_anns, REFINE_CROP, True)
-val_ds = SeedRefineDataset(val_anns, REFINE_CROP, False)
-train_loader = DataLoader(train_ds, REFINE_BATCH, shuffle=True, num_workers=WORKERS, pin_memory=True, drop_last=True)
-val_loader = DataLoader(val_ds, REFINE_BATCH*2, shuffle=False, num_workers=WORKERS, pin_memory=True)
-
-xb, yb = next(iter(train_loader))
-print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}, ")
-
-# Compute per-channel mean/std from training data (not ImageNet stats)
-print("Computing refiner channel statistics...")
-stats_ds = SeedRefineDataset(train_anns, REFINE_CROP, augment=False)
+# Step 1: create a temporary (no-normalisation) dataset to compute channel stats
+print("Computing refiner channel statistics from training data...")
+stats_ds = SeedRefineDataset(train_anns, REFINE_CROP, augment=False, mean=None, std=None)
 stats_loader = DataLoader(stats_ds, REFINE_BATCH * 2, shuffle=False, num_workers=WORKERS, pin_memory=True)
 ch_sum = np.zeros(3, dtype=np.float64)
 ch_sqsum = np.zeros(3, dtype=np.float64)
@@ -320,6 +317,16 @@ for x_batch, _ in tqdm(stats_loader, desc="stats"):
 REFINER_MEAN = (ch_sum / n_pixels).astype(np.float32)
 REFINER_STD = np.sqrt(np.maximum(ch_sqsum / n_pixels - REFINER_MEAN ** 2, 1e-6)).astype(np.float32)
 print(f"Refiner stats: mean={REFINER_MEAN}, std={REFINER_STD}")
+
+# Step 2: actual datasets / loaders that apply those stats
+train_ds = SeedRefineDataset(train_anns, REFINE_CROP, augment=True,  mean=REFINER_MEAN, std=REFINER_STD)
+val_ds   = SeedRefineDataset(val_anns,   REFINE_CROP, augment=False, mean=REFINER_MEAN, std=REFINER_STD)
+train_loader = DataLoader(train_ds, REFINE_BATCH, shuffle=True, num_workers=WORKERS, pin_memory=True, drop_last=True)
+val_loader   = DataLoader(val_ds,   REFINE_BATCH*2, shuffle=False, num_workers=WORKERS, pin_memory=True)
+
+xb, yb = next(iter(train_loader))
+print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}, "
+      f"xb_ch0 mean={float(xb[:,0].mean()):.3f} std={float(xb[:,0].std()):.3f}")
 
 refiner = smp.Unet(encoder_name="resnet34", encoder_weights="imagenet", in_channels=3, classes=1).to(DEVICE)
 opt = torch.optim.AdamW(refiner.parameters(), lr=REFINE_LR, weight_decay=1e-4)
