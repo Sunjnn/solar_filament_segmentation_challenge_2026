@@ -54,20 +54,20 @@ OUT = Path("/kaggle/working")
 YOLO_MODEL = "yolo11s.pt"
 YOLO_IMGSZ = 1280
 YOLO_EPOCHS = 40
-YOLO_BATCH = 6
+YOLO_BATCH = 8
 YOLO_CONF = 0.28
 YOLO_IOU = 0.50
 
 # ---- Refiner config ----
-REFINE_CROP = 512
-REFINE_EPOCHS = 15
-REFINE_BATCH = 6
+REFINE_CROP = 640
+REFINE_EPOCHS = 20
+REFINE_BATCH = 8
 REFINE_LR = 3e-4
 REFINE_THR = 0.50
 PAD_RATIO = 0.40
 CONTEXT = 1.5
 MIN_CROP = 96
-MIN_AREA = 200
+MIN_AREA = 150
 
 # ---- General ----
 VAL_FRAC = 0.15
@@ -311,7 +311,7 @@ val_loader = DataLoader(val_ds, REFINE_BATCH*2, shuffle=False, num_workers=WORKE
 xb, yb = next(iter(train_loader))
 print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}, ")
 
-refiner = smp.Unet(encoder_name="resnet50", encoder_weights="imagenet", in_channels=3, classes=1).to(DEVICE)
+refiner = smp.Unet(encoder_name="resnet34", encoder_weights="imagenet", in_channels=3, classes=1).to(DEVICE)
 opt = torch.optim.AdamW(refiner.parameters(), lr=REFINE_LR, weight_decay=1e-4)
 sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=REFINE_EPOCHS)
 scaler = torch.amp.GradScaler("cuda", enabled=DEVICE.type=="cuda")
@@ -329,6 +329,7 @@ for epoch in range(1, REFINE_EPOCHS+1):
         with torch.amp.autocast("cuda", enabled=DEVICE.type=="cuda"):
             logits = refiner(x)
             loss = 0.5*F.binary_cross_entropy_with_logits(logits, y) + 0.5*soft_dice_loss(logits, y)
+        scaler.scale(loss).backward(); scaler.step(opt); scaler.update()
         tr_losses.append(loss.item()); tr_dices.append(batch_dice(logits.detach(), y))
     refiner.eval()
     va_losses, va_dices = [], []
