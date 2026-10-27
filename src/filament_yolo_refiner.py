@@ -276,9 +276,7 @@ class SeedRefineDataset(Dataset):
 
         
         x = np.stack([img_c, clahe, seed_c*255], axis=0).astype(np.float32) / 255.0
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
-        std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
-        x = (x - mean) / std
+        x = (x - REFINER_MEAN[:, None, None]) / REFINER_STD[:, None, None]
         return torch.from_numpy(x), torch.from_numpy(tgt_c[None].astype(np.float32))
 
 # %% md
@@ -305,6 +303,23 @@ val_loader = DataLoader(val_ds, REFINE_BATCH*2, shuffle=False, num_workers=WORKE
 
 xb, yb = next(iter(train_loader))
 print(f"Refiner batch: {xb.shape} {yb.shape}, mask_mean={float(yb.mean()):.4f}, ")
+
+# Compute per-channel mean/std from training data (not ImageNet stats)
+print("Computing refiner channel statistics...")
+stats_ds = SeedRefineDataset(train_anns, REFINE_CROP, augment=False)
+stats_loader = DataLoader(stats_ds, REFINE_BATCH * 2, shuffle=False, num_workers=WORKERS, pin_memory=True)
+ch_sum = np.zeros(3, dtype=np.float64)
+ch_sqsum = np.zeros(3, dtype=np.float64)
+n_pixels = 0
+for x_batch, _ in tqdm(stats_loader, desc="stats"):
+    x_np = x_batch.numpy()
+    for ch in range(3):
+        ch_sum[ch] += x_np[:, ch].sum()
+        ch_sqsum[ch] += (x_np[:, ch] ** 2).sum()
+    n_pixels += x_np.shape[0] * x_np.shape[2] * x_np.shape[3]
+REFINER_MEAN = (ch_sum / n_pixels).astype(np.float32)
+REFINER_STD = np.sqrt(np.maximum(ch_sqsum / n_pixels - REFINER_MEAN ** 2, 1e-6)).astype(np.float32)
+print(f"Refiner stats: mean={REFINER_MEAN}, std={REFINER_STD}")
 
 refiner = smp.Unet(encoder_name="resnet34", encoder_weights="imagenet", in_channels=3, classes=1).to(DEVICE)
 opt = torch.optim.AdamW(refiner.parameters(), lr=REFINE_LR, weight_decay=1e-4)
@@ -382,8 +397,8 @@ def refine_box(gray, bbox_xyxy, conf):
     x0, y0, x1b, y1b = square_bounds(bbox, h, w)
     img_c = cv2.resize(gray[y0:y1b, x0:x1b], (REFINE_CROP,)*2, interpolation=cv2.INTER_LINEAR)
     clahe = cv2.createCLAHE(2.0, (8,8)).apply(img_c)
-    mean = np.array([0.485,0.456,0.406], np.float32)[:,None,None]
-    std  = np.array([0.229,0.224,0.225], np.float32)[:,None,None]
+    mean = REFINER_MEAN[:, None, None]
+    std  = REFINER_STD[:, None, None]
 
     shifts = [(0,0,False,False), (BOX_JITTER_PX,0,False,False), (-BOX_JITTER_PX,0,False,False), (0,BOX_JITTER_PX,False,False), (0,-BOX_JITTER_PX,False,False), (0,0,True,False), (0,0,False,True)] if USE_BOX_JITTER_TTA else [(0,0,False,False)]
     batch = []
