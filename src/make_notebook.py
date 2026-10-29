@@ -20,6 +20,7 @@ NOTEBOOK_MAP = {
     "exp_domain.py": "kaggle_baseline/exp_domain.ipynb",
     "smoke_check.py": "kaggle_baseline/smoke_check.ipynb",
     "filament_yolo_refiner.py": "kaggle_yolo_refiner/filament_yolo_refiner.ipynb",
+    "filament_yolo_seg.py": "kaggle_yolo_seg/filament_yolo_seg.ipynb",
 }
 
 PERCENT_SEP = re.compile(r"^# %%\s*(.*)$")

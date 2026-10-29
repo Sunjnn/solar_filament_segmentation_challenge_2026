@@ -1,0 +1,13 @@
+{
+  "id": "jianansun/filament-yolo-seg",
+  "title": "Filament YOLO11-seg Single Stage",
+  "code_file": "filament_yolo_seg.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": false,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": ["filament-segmentation-2026"],
+  "kernel_sources": []
+}
