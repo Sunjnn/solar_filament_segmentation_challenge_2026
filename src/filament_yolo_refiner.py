@@ -51,11 +51,11 @@ TRAIN_JSON = DATA / "train/MAGFiLO_1.0_Annotations_kaggle2026_train.json"
 OUT = Path("/kaggle/working")
 
 # ---- YOLO config ----
-YOLO_MODEL = "yolo11m.pt"
+YOLO_MODEL = "yolo11s.pt"
 YOLO_IMGSZ = 1280
 YOLO_EPOCHS = 40
-YOLO_BATCH = 4
-YOLO_CONF = 0.28
+YOLO_BATCH = 8
+YOLO_CONF = 0.10
 YOLO_IOU = 0.50
 
 # ---- Refiner config ----
