@@ -51,10 +51,10 @@ TRAIN_JSON = DATA / "train/MAGFiLO_1.0_Annotations_kaggle2026_train.json"
 OUT = Path("/kaggle/working")
 
 # ---- YOLO config ----
-YOLO_MODEL = "yolo11s.pt"
+YOLO_MODEL = "yolo11m.pt"
 YOLO_IMGSZ = 1280
 YOLO_EPOCHS = 40
-YOLO_BATCH = 8
+YOLO_BATCH = 4
 YOLO_CONF = 0.28
 YOLO_IOU = 0.50
 
@@ -431,22 +431,52 @@ def refine_box(gray, bbox_xyxy, conf):
     full[y0:y1b, x0:x1b] = cv2.resize(crop_m, (x1b-x0, y1b-y0), interpolation=cv2.INTER_NEAREST)
     return full, float(conf)
 
+def box_iou(box_a, box_b):
+    """Vectorised IoU between box_a [N,4] and box_b [M,4]."""
+    a = np.maximum(box_a[:, None, :2], box_b[None, :, :2])
+    b = np.minimum(box_a[:, None, 2:], box_b[None, :, 2:])
+    inter = np.prod(np.maximum(0, b - a), axis=-1)
+    area_a = np.prod(box_a[:, 2:] - box_a[:, :2], axis=-1)
+    area_b = np.prod(box_b[:, 2:] - box_b[:, :2], axis=-1)
+    return inter / (area_a[:, None] + area_b[None, :] - inter + 1e-6)
+
+def nms_boxes(boxes, scores, iou_thr):
+    order = np.argsort(-scores)
+    keep = []
+    while len(order):
+        i = order[0]; keep.append(i)
+        if len(order) == 1: break
+        order = order[1:][box_iou(boxes[i:i+1], boxes[order[1:]])[0] < iou_thr]
+    return np.array(keep, dtype=int)
+
 def predict_image(image_path):
     img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
     if img is None: return []
     if img.shape != (2048, 2048):
         img = cv2.resize(img, (2048, 2048), interpolation=cv2.INTER_AREA)
     bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    res = yolo.predict(source=bgr, conf=YOLO_CONF, iou=YOLO_IOU, imgsz=YOLO_IMGSZ,
-                       verbose=False, device=0 if DEVICE.type=="cuda" else "cpu")[0]
+
+    # Multi-scale inference: 1280 + 640
+    all_xyxy, all_confs = [], []
+    for sz in [1280, 640]:
+        res = yolo.predict(source=bgr, conf=YOLO_CONF, iou=YOLO_IOU, imgsz=sz,
+                           verbose=False, device=0 if DEVICE.type=="cuda" else "cpu")[0]
+        if res.boxes is not None and len(res.boxes):
+            all_xyxy.append(res.boxes.xyxy.cpu().numpy())
+            all_confs.append(res.boxes.conf.cpu().numpy())
+    if not all_xyxy:
+        return []
+
+    xyxy = np.concatenate(all_xyxy)
+    confs = np.concatenate(all_confs)
+    keep = nms_boxes(xyxy, confs, YOLO_IOU)
+    xyxy, confs = xyxy[keep], confs[keep]
+
     scored = []
-    if res.boxes is not None and len(res.boxes):
-        xyxy = res.boxes.xyxy.cpu().numpy()
-        confs = res.boxes.conf.cpu().numpy()
-        for i in np.argsort(-confs):
-            m, sc = refine_box(img, xyxy[i], float(confs[i]))
-            if m.sum() >= MIN_AREA:
-                scored.append((sc, m))
+    for i in np.argsort(-confs):
+        m, sc = refine_box(img, xyxy[i], float(confs[i]))
+        if m.sum() >= MIN_AREA:
+            scored.append((sc, m))
     return resolve_overlapping(scored)
 
 # Quick test on one val image
